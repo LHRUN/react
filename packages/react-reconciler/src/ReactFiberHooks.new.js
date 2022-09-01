@@ -189,6 +189,11 @@ let currentlyRenderingFiber: Fiber = (null: any);
 // current hook list is the list that belongs to the current fiber. The
 // work-in-progress hook list is a new list that will be added to the
 // work-in-progress fiber.
+/**
+ * 翻：Hooks以链表的形式存储在fiber的memoizedState字段中
+ * currentHook是属于当前fiber的
+ * workInProgressHook是一个新的hook列表，它将被添加到workInProgressFiber
+ */
 let currentHook: Hook | null = null;
 let workInProgressHook: Hook | null = null;
 
@@ -437,9 +442,11 @@ export function renderWithHooks<Props, SecondArg>(
   let children = Component(props, secondArg);
 
   // Check if there was a render phase update
+  // 翻：检查是否有渲染阶段的更新
   if (didScheduleRenderPhaseUpdateDuringThisPass) {
     // Keep rendering in a loop for as long as render phase updates continue to
     // be scheduled. Use a counter to prevent infinite loops.
+    // 只要渲染阶段继续更新，就保持循环渲染。使用计数器来防止无限循环
     let numberOfReRenders: number = 0;
     do {
       didScheduleRenderPhaseUpdateDuringThisPass = false;

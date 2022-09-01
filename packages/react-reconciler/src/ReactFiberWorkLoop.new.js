@@ -828,6 +828,11 @@ export function isUnsafeClassRenderPhaseUpdate(fiber: Fiber) {
 // of the existing task is the same as the priority of the next level that the
 // root has work on. This function is called on every update, and right before
 // exiting a task.
+/**
+ * 翻：此函数为根用户调度任务。每个根节点只有一个任务，如果一个任务已经被调用了
+ * 我们将检查以确保现有任务的优先级和正在工作的下一级任务的优先级相同
+ * 这个函数会在每次更新时以及退出任务之前被调用
+ */
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   const existingCallbackNode = root.callbackNode;
 
@@ -2036,15 +2041,18 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
   // need an additional field on the work in progress.
+  // 穿参unitOfWork是当前fiber节点
   const current = unitOfWork.alternate;
   setCurrentDebugFiberInDEV(unitOfWork);
 
   let next;
+  // Profilemode模式下，猜测和性能分析有关
   if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
     startProfilerTimer(unitOfWork);
     next = beginWork(current, unitOfWork, renderLanes);
     stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
   } else {
+    // beginWork会创建当前fiber节点的第一个子fiber节点
     next = beginWork(current, unitOfWork, renderLanes);
   }
 
@@ -2052,6 +2060,8 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   unitOfWork.memoizedProps = unitOfWork.pendingProps;
   if (next === null) {
     // If this doesn't spawn new work, complete the current work.
+    // 如果当前节点不存在子节点，则对其执行completeUnitOfWork
+    // completeUnitOfWork内部会判断当前节点有无兄弟节点，有则进入兄弟节点的beginWork流程，否则进入父节点completeUnitOfWork流程
     completeUnitOfWork(unitOfWork);
   } else {
     workInProgress = next;
