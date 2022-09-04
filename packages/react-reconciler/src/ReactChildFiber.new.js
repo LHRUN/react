@@ -332,65 +332,6 @@ function ChildReconciler(shouldTrackSideEffects) {
   }
 
   function placeChild(
-    newFiber: Fiber,
-    lastPlacedIndex: number,
-    newIndex: number,
-  ): number {
-    newFiber.index = newIndex;
-    if (!shouldTrackSideEffects) {
-      // During hydration, the useId algorithm needs to know which fibers are
-      // part of a list of children (arrays, iterators).
-      newFiber.flags |= Forked;
-      return lastPlacedIndex;
-    }
-    const current = newFiber.alternate;
-    if (current !== null) {
-      const oldIndex = current.index;
-      if (oldIndex < lastPlacedIndex) {
-        // This is a move.·
-        newFiber.flags |= Placement | PlacementDEV;
-        return lastPlacedIndex;
-      } else {
-        // This item can stay in place.
-        return oldIndex;
-      }
-    } else {
-      // This is an insertion.
-      newFiber.flags |= Placement | PlacementDEV;
-      return lastPlacedIndex;
-    }
-  }
-
-  function placeSingleChild(newFiber: Fiber): Fiber {
-    // This is simpler for the single child case. We only need to do a
-    // placement for inserting new children.
-    if (shouldTrackSideEffects && newFiber.alternate === null) {
-      newFiber.flags |= Placement | PlacementDEV;
-    }
-    return newFiber;
-  }
-
-  function updateTextNode(
-    returnFiber: Fiber,
-    current: Fiber | null,
-    textContent: string,
-    lanes: Lanes,
-  ) {
-    if (current === null || current.tag !== HostText) {
-      // Insert
-      const created = createFiberFromText(textContent, returnFiber.mode, lanes);
-      created.return = returnFiber;
-      return created;
-    } else {
-      // Update
-      const existing = useFiber(current, textContent);
-      existing.return = returnFiber;
-      return existing;
-    }
-  }
-
-  function updateElement(
-    returnFiber: Fiber,
     current: Fiber | null,
     element: ReactElement,
     lanes: Lanes,
@@ -1209,7 +1150,7 @@ function ChildReconciler(shouldTrackSideEffects) {
          * 通过useFiber创建一个新的Fiber
          * 如果element是一个Fragment，则以element.props.children建立Fiber
          * 将returnFiber赋给新的fiber的return字段，然后返回这个新的fiber
-         */
+         */·
         if (elementType === REACT_FRAGMENT_TYPE) {
           if (child.tag === Fragment) {
             deleteRemainingChildren(returnFiber, child.sibling);
@@ -1327,6 +1268,11 @@ function ChildReconciler(shouldTrackSideEffects) {
     // If the top level item is an array, we treat it as a set of children,
     // not as a fragment. Nested arrays on the other hand will be treated as
     // fragment nodes. Recursion happens at the normal flow.
+    /**
+     * 翻：这个函数不是递归的
+     * 如果顶层元素是一个数组，我们将其视为子元素的集合，不是片段
+     * 另一方面嵌套数组被视为片段节点，递归按正常流程进行
+     */
 
     // Handle top level unkeyed fragments as if they were arrays.
     // This leads to an ambiguity between <>{[...]}</> and <>...</>.

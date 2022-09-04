@@ -301,6 +301,7 @@ let workInProgressRootRenderLanes: Lanes = NoLanes;
 // we've yet to unwind the stack. In some cases, we may yield to the main thread
 // after this happens. If the fiber is pinged before we resume, we can retry
 // immediately instead of unwinding the stack.
+// 当workInProgressIsSuspended为true时，正在处理的fiber会挂起
 let workInProgressIsSuspended: boolean = false;
 let workInProgressThrownValue: mixed = null;
 
@@ -834,13 +835,19 @@ export function isUnsafeClassRenderPhaseUpdate(fiber: Fiber) {
  * 这个函数会在每次更新时以及退出任务之前被调用
  */
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
+  // 获取旧任务
   const existingCallbackNode = root.callbackNode;
 
   // Check if any lanes are being starved by other work. If so, mark them as
   // expired so we know to work on those next.
+  /**
+   * 记录任务的过期时间，检查是否有过期任务
+   * 有则立即将它放到root.expiredLanes,便于接下来将这个任务以同步模式立即调度
+   */
   markStarvedLanesAsExpired(root, currentTime);
 
   // Determine the next lanes to work on, and their priority.
+  // 确定renderLanes
   const nextLanes = getNextLanes(
     root,
     root === workInProgressRoot ? workInProgressRootRenderLanes : NoLanes,
@@ -848,6 +855,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
   if (nextLanes === NoLanes) {
     // Special case: There's nothing to work on.
+    // 如果渲染优先级为空，则不需要调度
     if (existingCallbackNode !== null) {
       cancelCallback(existingCallbackNode);
     }
@@ -857,9 +865,11 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   }
 
   // We use the highest priority lane to represent the priority of the callback.
+  // 获取renderLanes对应的任务优先级
   const newCallbackPriority = getHighestPriorityLane(nextLanes);
 
   // Check if there's an existing task. We may be able to reuse it.
+  // 检查是否存在旧任务，看一下能否复用
   const existingCallbackPriority = root.callbackPriority;
   if (
     existingCallbackPriority === newCallbackPriority &&
@@ -895,6 +905,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   }
 
   // Schedule a new callback.
+  // 调度一个新任务
   let newCallbackNode;
   if (newCallbackPriority === SyncLane) {
     // Special case: Sync React callbacks are scheduled on a special
@@ -1413,6 +1424,7 @@ function markRootSuspended(root, suspendedLanes) {
 
 // This is the entry point for synchronous tasks that don't go
 // through Scheduler
+// legacy模式下的协调阶段入口
 function performSyncWorkOnRoot(root) {
   if (enableProfilerTimer && enableProfilerNestedUpdatePhase) {
     syncNestedUpdateFlag();
@@ -1421,16 +1433,16 @@ function performSyncWorkOnRoot(root) {
   if ((executionContext & (RenderContext | CommitContext)) !== NoContext) {
     throw new Error('Should not already be working.');
   }
-
+  // 处理useEffect
   flushPassiveEffects();
-
+  // 计算优先级
   let lanes = getNextLanes(root, NoLanes);
   if (!includesSomeLane(lanes, SyncLane)) {
     // There's no remaining sync work left.
     ensureRootIsScheduled(root, now());
     return null;
   }
-
+  // 从root节点开始，至上而下更新
   let exitStatus = renderRootSync(root, lanes);
   if (root.tag !== LegacyRoot && exitStatus === RootErrored) {
     // If something threw an error, try rendering one more time. We'll render
@@ -1922,6 +1934,7 @@ function workLoopSync() {
     workInProgressIsSuspended = false;
     workInProgressThrownValue = null;
     if (workInProgress !== null) {
+      // 恢复暂停的fiber
       resumeSuspendedUnitOfWork(workInProgress, thrownValue);
     }
   }
@@ -2078,6 +2091,11 @@ function resumeSuspendedUnitOfWork(
   // just suspended. In some cases, we may choose to retry the fiber immediately
   // instead of unwinding the stack. It's a separate function to keep the
   // additional logic out of the work loop's hot path.
+  /**
+   * 翻：这是performUnitOfWork的一个分支，专门用于恢复暂停的fiber，
+   * 在某些情况下，我们可能选择立即重启fiber，而不是展开栈
+   * 工作循环热路径之外的逻辑
+   */
 
   const wasPinged = suspendedThenableDidResolve();
   resetWakeableStateAfterEachAttempt();
@@ -2167,6 +2185,9 @@ function resumeSuspendedUnitOfWork(
 function completeUnitOfWork(unitOfWork: Fiber): void {
   // Attempt to complete the current unit of work, then move to the next
   // sibling. If there are no more siblings, return to the parent fiber.
+  /**
+   * 翻：完成当前unitWork,然后移动到下一个，如果没有sibling节点，就返回到父fiber
+   */
   let completedWork = unitOfWork;
   do {
     // The current, flushed, state of this fiber is the alternate. Ideally
@@ -2176,13 +2197,16 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
     const returnFiber = completedWork.return;
 
     // Check if the work completed or if something threw.
+    // 检查work
     if ((completedWork.flags & Incomplete) === NoFlags) {
+      // 如果workInProgress节点没有出错，走正常的complete流程
       setCurrentDebugFiberInDEV(completedWork);
       let next;
       if (
         !enableProfilerTimer ||
         (completedWork.mode & ProfileMode) === NoMode
       ) {
+        // 对节点进行completeWork，生成DOM，更新props，绑定事件
         next = completeWork(current, completedWork, renderLanes);
       } else {
         startProfilerTimer(completedWork);
@@ -2192,8 +2216,10 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       }
       resetCurrentDebugFiberInDEV();
 
+      // 任务被挂起
       if (next !== null) {
         // Completing this fiber spawned new work. Work on that next.
+        // 翻：完成fiber时产生了新的work，接下来再做这个
         workInProgress = next;
         return;
       }
@@ -2201,6 +2227,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       // This fiber did not complete because something threw. Pop values off
       // the stack without entering the complete phase. If this is a boundary,
       // capture values if possible.
+      // 执行到这个分支说明之前的更新有错误，进入unwindWork
       const next = unwindWork(current, completedWork, renderLanes);
 
       // Because this fiber did not complete, don't reset its lanes.
@@ -2245,6 +2272,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       }
     }
 
+    // 查找兄弟节点，若有则进行beginWork -> completeWork
     const siblingFiber = completedWork.sibling;
     if (siblingFiber !== null) {
       // If there is more work to do in this returnFiber, do that next.
@@ -2252,12 +2280,15 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       return;
     }
     // Otherwise, return to the parent
+    // 若没有兄弟节点，那么向上回到父级节点
     completedWork = returnFiber;
     // Update the next thing we're working on in case something throws.
+    // 将workInProgress节点指向父节点
     workInProgress = completedWork;
   } while (completedWork !== null);
 
   // We've reached the root.
+  // 到达root，整棵树完成，标记完成状态
   if (workInProgressRootExitStatus === RootInProgress) {
     workInProgressRootExitStatus = RootCompleted;
   }

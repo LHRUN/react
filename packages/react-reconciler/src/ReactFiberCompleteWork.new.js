@@ -220,15 +220,20 @@ if (supportsMutation) {
   ) {
     // We only have the top Fiber that was created but we need recurse down its
     // children to find all the terminal nodes.
+    // 找到当前节点的子fiber节点
     let node = workInProgress.child;
+    // 当存在子节点时，去往下遍历
     while (node !== null) {
       if (node.tag === HostComponent || node.tag === HostText) {
+        // 子节点是原生DOM节点，直接可以插入
         appendInitialChild(parent, node.stateNode);
       } else if (node.tag === HostPortal) {
         // If we have a portal child, then we don't want to traverse
         // down its children. Instead, we'll get insertions from each child in
         // the portal directly.
+        // 如果是HostPortal类型的节点，什么都不做
       } else if (node.child !== null) {
+        // 代码执行到这，说明node不符合插入要求，继续寻找子节点
         node.child.return = node;
         node = node.child;
         continue;
@@ -236,12 +241,17 @@ if (supportsMutation) {
       if (node === workInProgress) {
         return;
       }
+      /**
+       * 当不存在兄弟节点时往上找，此过程发生在当前completeWork节点的子节点再无子节点的场景
+       * 并不是直接从当前completeWork的节点去往上找
+       */
       while (node.sibling === null) {
         if (node.return === null || node.return === workInProgress) {
           return;
         }
         node = node.return;
       }
+      // 当不存在子节点时，从sibling节点入手开始找
       node.sibling.return = node.return;
       node = node.sibling;
     }
@@ -259,6 +269,7 @@ if (supportsMutation) {
     // If we have an alternate, that means this is an update and we need to
     // schedule a side-effect to do the updates.
     const oldProps = current.memoizedProps;
+    // 新旧props相同，不更新
     if (oldProps === newProps) {
       // In mutation mode, this is sufficient for a bailout because
       // we won't touch this node even if children changed.
@@ -274,6 +285,7 @@ if (supportsMutation) {
     // TODO: Experiencing an error where oldProps is null. Suggests a host
     // component is hitting the resume path. Figure out why. Possibly
     // related to `hidden`.
+    // prepareUpdate计算新属性
     const updatePayload = prepareUpdate(
       instance,
       type,
@@ -282,10 +294,12 @@ if (supportsMutation) {
       currentHostContext,
     );
     // TODO: Type this specific to this type of component.
+    // 最终新属性被挂载到updateQueue中，供commit阶段使用
     workInProgress.updateQueue = (updatePayload: any);
     // If the update payload indicates that there is a change or if there
     // is a new ref we mark this as an update. All the work is done in commitWork.
     if (updatePayload) {
+      // 标记workInProgress节点有更新
       markUpdate(workInProgress);
     }
   };
@@ -955,12 +969,14 @@ function completeWork(
       popHostContext(workInProgress);
       const type = workInProgress.type;
       if (current !== null && workInProgress.stateNode != null) {
+        // 更新
         updateHostComponent(current, workInProgress, type, newProps);
 
         if (current.ref !== workInProgress.ref) {
           markRef(workInProgress);
         }
       } else {
+        // 创建
         if (!newProps) {
           if (workInProgress.stateNode === null) {
             throw new Error(
@@ -970,6 +986,7 @@ function completeWork(
           }
 
           // This can happen when we abort work.
+          // 翻：当中止工作时可能会发生这种情况
           bubbleProperties(workInProgress);
           return null;
         }
@@ -992,6 +1009,8 @@ function completeWork(
           }
         } else {
           const rootContainerInstance = getRootHostContainer();
+
+          // 创建DOM节点
           const instance = createInstance(
             type,
             newProps,
@@ -999,14 +1018,15 @@ function completeWork(
             currentHostContext,
             workInProgress,
           );
-
+          // DOM节点插入
           appendAllChildren(instance, workInProgress, false, false);
-
+          // 将DOM节点挂载到fiber的stateNode上
           workInProgress.stateNode = instance;
 
           // Certain renderers require commit-time effects for initial mount.
           // (eg DOM renderer supports auto-focus for certain elements).
           // Make sure such renderers get scheduled for later work.
+          // DOM节点属性初始化
           if (
             finalizeInitialChildren(
               instance,
@@ -1015,6 +1035,7 @@ function completeWork(
               currentHostContext,
             )
           ) {
+            // 最终回依据textarea的autoFocus属性来决定是否更新fiber
             markUpdate(workInProgress);
           }
         }

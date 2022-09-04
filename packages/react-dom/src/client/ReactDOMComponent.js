@@ -650,14 +650,21 @@ export function diffProperties(
   let styleName;
   let styleUpdates = null;
   for (propKey in lastProps) {
+    // 循环lastProps，找出需要标记删除的propKey
     if (
       nextProps.hasOwnProperty(propKey) ||
       !lastProps.hasOwnProperty(propKey) ||
       lastProps[propKey] == null
     ) {
+      /**
+       * 对propKey来说，如果nextProps也有，或者lastProps没有
+       * 那么就不需要标记为删除，跳出本次循环继续判断下一个propKey
+       */
       continue;
     }
+    // 删除一些特定种类的propKey
     if (propKey === STYLE) {
+      // 删除style
       const lastStyle = lastProps[propKey];
       for (styleName in lastStyle) {
         if (lastStyle.hasOwnProperty(styleName)) {
@@ -690,6 +697,7 @@ export function diffProperties(
     }
   }
   for (propKey in nextProps) {
+    // 将新prop添加到updatePayload
     const nextProp = nextProps[propKey];
     const lastProp = lastProps != null ? lastProps[propKey] : undefined;
     if (
@@ -697,6 +705,10 @@ export function diffProperties(
       nextProp === lastProp ||
       (nextProp == null && lastProp == null)
     ) {
+      /**
+       * 如果nextProps不存在propKey，或者前后的value相同，或者前后的value都为null
+       * 那么不需要添加进去，跳出本次循环继续处理下一个prop
+       */
       continue;
     }
     if (propKey === STYLE) {
@@ -707,8 +719,13 @@ export function diffProperties(
           Object.freeze(nextProp);
         }
       }
+      // 如果style在lastProps和nextProps中都有，那么需要删除laastProps中style的样式
       if (lastProp) {
         // Unset styles on `lastProp` but not on `nextProp`.
+        /**
+         * 如果lastProps中也有style
+         * 将style内的样式属性设置为空
+         */
         for (styleName in lastProp) {
           if (
             lastProp.hasOwnProperty(styleName) &&
@@ -721,6 +738,7 @@ export function diffProperties(
           }
         }
         // Update styles that changed since `lastProp`.
+        // 以nextProps的属性名为key设置新的style的value
         for (styleName in nextProp) {
           if (
             nextProp.hasOwnProperty(styleName) &&
@@ -734,6 +752,7 @@ export function diffProperties(
         }
       } else {
         // Relies on `updateStylesByID` not mutating `styleUpdates`.
+        // 如果lastProps中没有style，说明新增的属性全部可放入updatePayload
         if (!styleUpdates) {
           if (!updatePayload) {
             updatePayload = [];
@@ -788,6 +807,7 @@ export function diffProperties(
     if (__DEV__) {
       validateShorthandPropertyCollisionInDev(styleUpdates, nextProps[STYLE]);
     }
+    // 将style和值push进updatePayLoad
     (updatePayload = updatePayload || []).push(STYLE, styleUpdates);
   }
   return updatePayload;
