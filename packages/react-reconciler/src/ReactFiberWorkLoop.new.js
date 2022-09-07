@@ -901,6 +901,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
   if (existingCallbackNode != null) {
     // Cancel the existing callback. We'll schedule a new one below.
+    // 取消现有回调，会在接下来准备一个新的schedule
     cancelCallback(existingCallbackNode);
   }
 
@@ -943,6 +944,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
       }
     } else {
       // Flush the queue in an Immediate task.
+      // 刷新队列
       scheduleCallback(ImmediateSchedulerPriority, flushSyncCallbacks);
     }
     newCallbackNode = null;
@@ -2327,6 +2329,13 @@ function commitRootImpl(
   transitions: Array<Transition> | null,
   renderPriorityLevel: EventPriority,
 ) {
+  // 进入commit阶段，先执行一次之前未执行的useEffect
+  /**
+   * commit开始，先执行一下useEffect：这和useEffect异步调度的特点有关，
+   * 它以一般的优先级被调度，这就意味着一旦有更高优先级的任务进入到commit阶段，
+   * 上一次任务的useEffect还没得到执行。所以在本次更新开始前，
+   * 需要先将之前的useEffect都执行掉，以保证本次调度的useEffect都是本次更新产生的
+   */
   do {
     // `flushPassiveEffects` will call `flushSyncUpdateQueue` at the end, which
     // means `flushPassiveEffects` will sometimes result in additional
@@ -2472,10 +2481,12 @@ function commitRootImpl(
     // The commit phase is broken into several sub-phases. We do a separate pass
     // of the effect list for each phase: all mutation effects come before all
     // layout effects, and so on.
+    // commit阶段分为几个子阶段
 
     // The first phase a "before mutation" phase. We use this phase to read the
     // state of the host tree right before we mutate it. This is where
     // getSnapshotBeforeUpdate is called.
+    // beforeMutation阶段的处理函数，commitBeforeMutationEffects内部异步调度useEffect
     const shouldFireAfterActiveInstanceBlur = commitBeforeMutationEffects(
       root,
       finishedWork,
@@ -2520,6 +2531,7 @@ function commitRootImpl(
     if (enableSchedulingProfiler) {
       markLayoutEffectsStarted(lanes);
     }
+    // layout阶段阶段填充effect执行数组
     commitLayoutEffects(finishedWork, root, lanes);
     if (__DEV__) {
       if (enableDebugTracing) {

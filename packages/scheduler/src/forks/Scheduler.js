@@ -105,6 +105,7 @@ const continuousOptions = {includeContinuous: enableIsInputPendingContinuous};
 
 function advanceTimers(currentTime) {
   // Check for tasks that are no longer delayed and add them to the queue.
+  // 检查过期任务将其添加到任务队列
   let timer = peek(timerQueue);
   while (timer !== null) {
     if (timer.callback === null) {
@@ -129,8 +130,14 @@ function advanceTimers(currentTime) {
 
 function handleTimeout(currentTime) {
   isHostTimeoutScheduled = false;
+  // 检查timerQueue队列中过期的任务，放到taskQueue
   advanceTimers(currentTime);
 
+  /**
+   * 检查是否已经开始调度，如尚未调度，检查taskQueue中是否已经有任务
+   *   如果有，而且现在是空闲的，说明之前的advanceTimers已经将过期任务放到了taskQueue，那么现在立即开始调度，执行任务
+   *   如果没有，而且现在是空闲的，说明之前的advanceTimers并没有检查到timerQueue中有过期任务，那么再次调用requestHostTimeout重复这一过程
+   */
   if (!isHostCallbackScheduled) {
     if (peek(taskQueue) !== null) {
       isHostCallbackScheduled = true;
@@ -189,6 +196,7 @@ function flushWork(hasTimeRemaining, initialTime) {
 function workLoop(hasTimeRemaining, initialTime) {
   let currentTime = initialTime;
   advanceTimers(currentTime);
+  // 获取taskQueue中排在最前面的任务
   currentTask = peek(taskQueue);
   while (
     currentTask !== null &&
@@ -199,6 +207,11 @@ function workLoop(hasTimeRemaining, initialTime) {
       (!hasTimeRemaining || shouldYieldToHost())
     ) {
       // This currentTask hasn't expired, and we've reached the deadline.
+      /**
+       * 中止条件：任务并未过期，但已经没有剩余时间了，或者应该让出执行权给主线程
+       * 也就是说currentTask执行得好好的，可是时间不允许，那只能先break掉本次while循环，使得本次循环下面currentTask执行的逻辑都不能被执行到
+       * 但是被break的只是while循环，while下部还是会判断currentTask的状态
+       */
       break;
     }
     const callback = currentTask.callback;
@@ -310,9 +323,12 @@ function unstable_wrapCallback(callback) {
 }
 
 function unstable_scheduleCallback(priorityLevel, callback, options) {
+  // 获取当前时间，它是计算任务开始时间、过期时间、和判断任务是否过期的依据
   var currentTime = getCurrentTime();
 
+  // 确定任务开始时间
   var startTime;
+  // 从options中尝试获取delay，也就是推迟时间
   if (typeof options === 'object' && options !== null) {
     var delay = options.delay;
     if (typeof delay === 'number' && delay > 0) {
@@ -324,6 +340,7 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
     startTime = currentTime;
   }
 
+  // 计算过期时间
   var timeout;
   switch (priorityLevel) {
     case ImmediatePriority:
@@ -344,36 +361,55 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
       break;
   }
 
+  // 计算过期时间，startTime是任务开始时间，可见过期时间是任务开始时间+timeout
+  // 若是立即执行的优先级(ImmediatePriority)，它的过期时间是startTime - 1，意味着立刻就过期
   var expirationTime = startTime + timeout;
 
+  // 创建调度任务
   var newTask = {
     id: taskIdCounter++,
-    callback,
-    priorityLevel,
-    startTime,
-    expirationTime,
-    sortIndex: -1,
+    callback, // 任务函数
+    priorityLevel, // 任务优先级
+    startTime, // 任务开始时间
+    expirationTime, // 任务过期时间
+    sortIndex: -1, // 在小顶堆队列中排序的根据
   };
   if (enableProfiling) {
     newTask.isQueued = false;
   }
 
+  /**
+   * 如果任务未过期，则将newTask放入timerQueue，调用requestHostTimeout
+   * 目的是在timerQueue中排在最前面的任务的开始时间的时间点检查任务是否过期
+   * 过期则立即将任务加入taskQueue，开始调度
+   */
   if (startTime > currentTime) {
     // This is a delayed task.
     newTask.sortIndex = startTime;
     push(timerQueue, newTask);
     if (peek(taskQueue) === null && newTask === peek(timerQueue)) {
       // All tasks are delayed, and this is the task with the earliest delay.
+      /**
+       * 如果现在taskQueue中没有任务，并且当前的任务是timerQueue中排名最靠前的那一个
+       * 那么需要检查timerQueue中有没有需要放到taskQueue中的任务，这一步通过调用requestHostTimeout实现
+       */
       if (isHostTimeoutScheduled) {
         // Cancel an existing timeout.
+        // 因为即将调度一个requestHostTimeout，所以如果之前已经调度了，那么取消掉
         cancelHostTimeout();
       } else {
         isHostTimeoutScheduled = true;
       }
       // Schedule a timeout.
+      // 调用requestHostTimeout实现任务的转移，开启调度
       requestHostTimeout(handleTimeout, startTime - currentTime);
     }
   } else {
+    /**
+     * 如果任务已过期，则将newTask放入taskQueue，调用requestHostCallback
+     * 开始调度执行taskQueueu中的任务
+     */
+    // 任务已经过期，以过期时间作为taskQueue排序的依据
     newTask.sortIndex = expirationTime;
     push(taskQueue, newTask);
     if (enableProfiling) {
@@ -382,6 +418,7 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
     }
     // Schedule a host callback, if needed. If we're already performing work,
     // wait until the next time we yield.
+    // 开始执行任务，使用flushWork去执行taskQueue
     if (!isHostCallbackScheduled && !isPerformingWork) {
       isHostCallbackScheduled = true;
       requestHostCallback(flushWork);
@@ -518,6 +555,7 @@ function forceFrameRate(fps) {
 
 const performWorkUntilDeadline = () => {
   if (scheduledHostCallback !== null) {
+    // 获取当前时间
     const currentTime = getCurrentTime();
     // Keep track of the start time so we can measure how long the main thread
     // has been blocked.
@@ -532,6 +570,10 @@ const performWorkUntilDeadline = () => {
     // `hasMoreWork` will remain true, and we'll continue the work loop.
     let hasMoreWork = true;
     try {
+      /**
+       * scheduledHostCallback实际是执行的flushWork，flushWork会返回workLoop的执行结果
+       * 如果为true，表示还有任务，所以会让调度者调度一个执行者，继续执行任务
+       */
       hasMoreWork = scheduledHostCallback(hasTimeRemaining, currentTime);
     } finally {
       if (hasMoreWork) {
@@ -539,6 +581,7 @@ const performWorkUntilDeadline = () => {
         // of the preceding one.
         schedulePerformWorkUntilDeadline();
       } else {
+        // 如果没有任务，停止调度
         isMessageLoopRunning = false;
         scheduledHostCallback = null;
       }
@@ -552,6 +595,7 @@ const performWorkUntilDeadline = () => {
 };
 
 let schedulePerformWorkUntilDeadline;
+// 根据兼容分三种情况调用 setImmediate MessageChannel setTimeout
 if (typeof localSetImmediate === 'function') {
   // Node.js and old IE.
   // There's a few reasons for why we prefer setImmediate.
